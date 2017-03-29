@@ -1,4 +1,4 @@
-package com.redhat.maven.release.checker;
+package com.redhat.maven.index.checker;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
