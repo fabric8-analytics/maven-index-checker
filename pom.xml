@@ -4,8 +4,8 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.redhat.maven.release.checker</groupId>
-    <artifactId>maven-release-checker</artifactId>
+    <groupId>com.redhat.index.release.checker</groupId>
+    <artifactId>maven-index-checker</artifactId>
     <version>1.0-SNAPSHOT</version>
     <dependencies>
         <dependency>
@@ -65,7 +65,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.redhat.maven.release.checker.MavenIndexChecker</mainClass>
+                            <mainClass>com.redhat.maven.index.checker.MavenIndexChecker</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
