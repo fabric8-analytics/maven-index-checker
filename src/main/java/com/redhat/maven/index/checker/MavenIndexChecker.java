@@ -50,6 +50,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.json.simple.JSONObject;
 
+import org.apache.commons.cli.*;
 
 import java.io.File;
 import java.io.IOException;
@@ -61,16 +62,79 @@ public class MavenIndexChecker {
     public static void main(String[] args)
             throws Exception {
 
-        final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker();
+        Options options = new Options();
+
+        Option range = new Option("r", "range", true, "range in maven index" +
+                " separated by dash. eg. 0-1000.");
+        range.setRequired(false);
+        options.addOption(range);
+
+        Option ignore = new Option("it", "ignore-timestamp", false,
+                "always output latest releases");
+        ignore.setRequired(false);
+        options.addOption(ignore);
+
+        CommandLineParser parser = new BasicParser();
+        HelpFormatter formatter = new HelpFormatter();
+        CommandLine cmd;
+
+        try {
+            cmd = parser.parse(options, args);
+        } catch (ParseException e) {
+            System.out.println(e.getMessage());
+            formatter.printHelp("maven-index-checker", options);
+
+            System.exit(1);
+            return;
+        }
+
+        boolean ignoreTimeStamp = false;
+        if (cmd.hasOption("it")) {
+            ignoreTimeStamp = true;
+        }
+
+        String inputRange = cmd.getOptionValue("r");
+        int[] mavenIndexRange = null;
+        if (inputRange != null) {
+            mavenIndexRange = parseRange(inputRange);
+            // I want to ingore timestamps if i pick range
+            ignoreTimeStamp = true;
+        }
+
+        final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker(ignoreTimeStamp, mavenIndexRange);
         mavenIndexChecker.perform();
     }
 
     private static String toJSON(String artifactId, String groupId, String version) {
         JSONObject obj = new JSONObject();
-            obj.put("artifactId", artifactId);
-            obj.put("groupId", groupId);
-            obj.put("version", version);
-            return obj.toJSONString();
+        obj.put("artifactId", artifactId);
+        obj.put("groupId", groupId);
+        obj.put("version", version);
+        return obj.toJSONString();
+    }
+
+    private static int[] parseRange(String mavenIndexRange) {
+        String[] ranges = mavenIndexRange.split("-");
+        if (ranges.length != 2) {
+            throw new IllegalArgumentException("Given range is not separated correctly");
+        }
+        int[] intRanges = new int[2];
+
+        try {
+            for (int i = 0; i < 2; i++) {
+                intRanges[i] = Integer.parseInt(ranges[i]);
+            }
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Given range is not formatted correctly");
+        }
+
+        // swap if there is bad order
+        if (intRanges[0] > intRanges[1]) {
+            int tmp = intRanges[1];
+            intRanges[1] = intRanges[0];
+            intRanges[0] = tmp;
+        }
+        return intRanges;
     }
 
     private final Logger logger;
@@ -83,7 +147,11 @@ public class MavenIndexChecker {
 
     private final Wagon httpWagon;
 
-    private MavenIndexChecker()
+    private final boolean ignoreTimeStamp;
+
+    private int[] ranges = null;
+
+    private MavenIndexChecker(boolean ignoreTimeStamp, int[] ranges)
             throws PlexusContainerException, ComponentLookupException {
         final DefaultContainerConfiguration config = new DefaultContainerConfiguration();
         config.setClassPathScanning(PlexusConstants.SCANNING_INDEX);
@@ -96,6 +164,10 @@ public class MavenIndexChecker {
         this.httpWagon = plexusContainer.lookup(Wagon.class, "http");
         logger = LoggerFactory.getLogger(MavenIndexChecker.class);
         // set number of newest packages to synchronize
+        this.ignoreTimeStamp = ignoreTimeStamp;
+        if (ranges != null) {
+            this.ranges = ranges;
+        }
     }
 
     private void perform()
@@ -165,21 +237,25 @@ public class MavenIndexChecker {
         logger.info("===========");
 
         JSONArray jsArray = new JSONArray();
-        if (syncRequired) {
+        if (syncRequired || ignoreTimeStamp) {
             final IndexSearcher searcher = centralContext.acquireIndexSearcher();
             try {
                 final IndexReader ir = searcher.getIndexReader();
                 Bits liveDocs = MultiFields.getLiveDocs(ir);
-                int max = ir.maxDoc() - 1;
-                for (int i = 0; i < 50; i++, max--) {
-                    if (liveDocs == null || liveDocs.get(max)) {
-                        final Document doc = ir.document(max);
+                if (ranges == null) {
+                    ranges = new int[2];
+                    ranges[1] = ir.maxDoc() - 1;
+                    ranges[0] = ranges[1] - 40;
+                }
+                for (int i = ranges[1]; i > ranges[0]; i--) {
+                    if (liveDocs == null || liveDocs.get(i)) {
+                        final Document doc = ir.document(i);
                         final ArtifactInfo ai = IndexUtils.constructArtifactInfo(doc, centralContext);
 
                         if (ai != null) {
                             Date date = new Date(ai.getLastModified());
                             // we want to announce just jar's
-                            if ("jar".equals(ai.getPackaging()) && date.after(previousCheck))
+                            if ("jar".equals(ai.getPackaging()) && (date.after(previousCheck) || ignoreTimeStamp))
                                 jsArray.add(toJSON(ai.getArtifactId(), ai.getGroupId(), ai.getVersion()));
                         }
                     }
