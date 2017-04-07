@@ -105,12 +105,12 @@ public class MavenIndexChecker {
         mavenIndexChecker.perform();
     }
 
-    private static String toJSON(String artifactId, String groupId, String version) {
+    private static JSONObject toJSON(String artifactId, String groupId, String version) {
         JSONObject obj = new JSONObject();
         obj.put("artifactId", artifactId);
         obj.put("groupId", groupId);
         obj.put("version", version);
-        return obj.toJSONString();
+        return obj;
     }
 
     private static int[] parseRange(String mavenIndexRange) {
