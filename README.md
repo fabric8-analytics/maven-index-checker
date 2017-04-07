@@ -1,5 +1,11 @@
 Maven Index Checker
 ======
+
+`usage: maven-index-checker`
+ 
+`-it,--ignore-timestamp   always output latest releases`
+ 
+`-r,--range <arg>         range in maven index separated by dash. eg.`
 # Introduction
 Maven Index Checker for [Anitya](https://github.com/fedora-infra/anitya).
 
