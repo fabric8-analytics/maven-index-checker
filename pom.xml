@@ -14,6 +14,11 @@
             <version>6.0.WINDUP</version>
         </dependency>
         <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.1</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.maven.indexer</groupId>
             <artifactId>indexer-cli</artifactId>
             <version>6.0.WINDUP</version>
@@ -43,7 +48,7 @@
         </dependency>
     </dependencies>
 
-        <repositories>
+    <repositories>
         <repository>
             <id>jboss-maven-repository</id>
             <url>https://repository.jboss.org/nexus/content/groups/public/</url>
