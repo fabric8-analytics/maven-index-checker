@@ -48,15 +48,11 @@ import org.eclipse.aether.version.InvalidVersionSpecificationException;
 import org.json.simple.JSONArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.json.simple.JSONObject;
-
 import org.apache.commons.cli.*;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 public class MavenIndexChecker {
     public static void main(String[] args)
@@ -73,6 +69,11 @@ public class MavenIndexChecker {
                 "always output latest releases");
         ignore.setRequired(false);
         options.addOption(ignore);
+
+        Option maxJarNumber = new Option("mj", "max-jar", true,
+                "Maximal number of jars to be printed. Too big number can cause out of memory problem");
+        maxJarNumber.setRequired(false);
+        options.addOption(maxJarNumber);
 
         CommandLineParser parser = new BasicParser();
         HelpFormatter formatter = new HelpFormatter();
@@ -93,39 +94,35 @@ public class MavenIndexChecker {
             ignoreTimeStamp = true;
         }
 
-        String inputRange = cmd.getOptionValue("r");
-        int[] mavenIndexRange = null;
-        if (inputRange != null) {
-            mavenIndexRange = parseRange(inputRange);
-            // I want to ingore timestamps if i pick range
+        Range mavenIndexRange = null;
+        if (cmd.hasOption("r")) {
+            mavenIndexRange = parseRange(cmd.getOptionValue("r"));
+            // I want to ignore timestamps in case there is range option
             ignoreTimeStamp = true;
         }
 
-        final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker(ignoreTimeStamp, mavenIndexRange);
+        int maxJarNumberValue = -1;
+        if (cmd.hasOption("mj")) {
+            maxJarNumberValue = Integer.parseInt(cmd.getOptionValue("mj"));
+        }
+
+        final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker(ignoreTimeStamp, mavenIndexRange,
+                maxJarNumberValue);
         mavenIndexChecker.perform();
     }
 
-    private static JSONObject toJSON(String artifactId, String groupId, String version) {
-        JSONObject obj = new JSONObject();
-        obj.put("artifactId", artifactId);
-        obj.put("groupId", groupId);
-        obj.put("version", version);
-        return obj;
-    }
-
-    private static int[] parseRange(String mavenIndexRange) {
+    private static Range parseRange(String mavenIndexRange) {
         String[] ranges = mavenIndexRange.split("-");
         if (ranges.length != 2) {
             throw new IllegalArgumentException("Given range is not separated correctly");
         }
         int[] intRanges = new int[2];
-
         try {
             for (int i = 0; i < 2; i++) {
                 intRanges[i] = Integer.parseInt(ranges[i]);
             }
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Given range is not formatted correctly");
+            throw new IllegalArgumentException("Given range is does not contains integer number");
         }
 
         // swap if there is bad order
@@ -134,10 +131,14 @@ public class MavenIndexChecker {
             intRanges[1] = intRanges[0];
             intRanges[0] = tmp;
         }
-        return intRanges;
+        return new Range(intRanges[0], intRanges[1]);
     }
 
     private final Logger logger;
+
+    private final static String MAVEN_URL = "http://repo1.maven.org/maven2";
+
+    private int maxJarNumber = 10000;
 
     private final PlexusContainer plexusContainer;
 
@@ -149,9 +150,19 @@ public class MavenIndexChecker {
 
     private final boolean ignoreTimeStamp;
 
-    private int[] ranges = null;
+    private Range ranges = null;
 
-    private MavenIndexChecker(boolean ignoreTimeStamp, int[] ranges)
+    private static class Range {
+        int start;
+        int end;
+
+        Range(int start, int end) {
+            this.start = start;
+            this.end = end;
+        }
+    }
+
+    private MavenIndexChecker(boolean ignoreTimeStamp, Range ranges, int maxJarNumber)
             throws PlexusContainerException, ComponentLookupException {
         final DefaultContainerConfiguration config = new DefaultContainerConfiguration();
         config.setClassPathScanning(PlexusConstants.SCANNING_INDEX);
@@ -165,9 +176,11 @@ public class MavenIndexChecker {
         logger = LoggerFactory.getLogger(MavenIndexChecker.class);
         // set number of newest packages to synchronize
         this.ignoreTimeStamp = ignoreTimeStamp;
-        if (ranges != null) {
+        if (ranges != null)
             this.ranges = ranges;
-        }
+
+        if(maxJarNumber != -1)
+            this.maxJarNumber = maxJarNumber;
     }
 
     private void perform()
@@ -185,7 +198,7 @@ public class MavenIndexChecker {
         // Create context for central repository index
         IndexingContext centralContext =
                 indexer.createIndexingContext("central-context", "central", centralLocalCache, centralIndexDir,
-                        "http://repo1.maven.org/maven2", null, true, true, indexers);
+                        MAVEN_URL, null, true, true, indexers);
 
         // Update the index (incremental update will happen if this is not 1st run and files are not deleted)
         // This whole block below should not be executed on every app start, but rather controlled by some configuration
@@ -230,43 +243,50 @@ public class MavenIndexChecker {
                         "Incremental update happened, change covered " + previousCheck + " - "
                                 + updateResult.getTimestamp() + " period.");
             }
-
         }
 
         logger.info("Reading index");
         logger.info("===========");
 
         JSONArray jsArray = new JSONArray();
+        Set<OutputInfo> info = new HashSet<OutputInfo>();
         if (syncRequired || ignoreTimeStamp) {
             final IndexSearcher searcher = centralContext.acquireIndexSearcher();
             try {
                 final IndexReader ir = searcher.getIndexReader();
                 Bits liveDocs = MultiFields.getLiveDocs(ir);
+                int max = ir.maxDoc() - 1;
                 if (ranges == null) {
-                    ranges = new int[2];
-                    ranges[1] = ir.maxDoc() - 1;
-                    ranges[0] = ranges[1] - 40;
-                }
-                for (int i = ranges[1]; i > ranges[0]; i--) {
+                    ranges = new Range(0, max);
+                } else if (ranges.end > max)
+                    ranges.end = max;
+
+                for (int i = ranges.end; i > ranges.start; i--) {
                     if (liveDocs == null || liveDocs.get(i)) {
                         final Document doc = ir.document(i);
                         final ArtifactInfo ai = IndexUtils.constructArtifactInfo(doc, centralContext);
-
                         if (ai != null) {
                             Date date = new Date(ai.getLastModified());
                             // we want to announce just jar's
-                            if ("jar".equals(ai.getPackaging()) && (date.after(previousCheck) || ignoreTimeStamp))
-                                jsArray.add(toJSON(ai.getArtifactId(), ai.getGroupId(), ai.getVersion()));
+                            if ("jar".equals(ai.getPackaging()) && (date.after(previousCheck) || ignoreTimeStamp)) {
+                                info.add(new OutputInfo(ai.getArtifactId(), ai.getGroupId(), ai.getVersion()));
+                            }
+
+                            if (info.size() >= maxJarNumber) {
+                                break;
+                            }
                         }
                     }
                 }
-                System.out.println(jsArray.toJSONString());
 
+                for (OutputInfo i : info) {
+                    jsArray.add(i.toJSON());
+                }
+                System.out.println(jsArray.toJSONString());
             } finally {
                 centralContext.releaseIndexSearcher(searcher);
             }
         }
-
         indexer.closeIndexingContext(centralContext, false);
     }
 }
