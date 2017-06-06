@@ -5,7 +5,7 @@ Maven Index Checker
  
 `-n,--new-only            only entries added to index since last run. Is set to false if -r/-range is used.`
  
-`-r,--range <arg>         range in maven index separated by dash. eg.`
+`-r,--range <arg>         dash separated range in maven index. Indexes are taken from end (the newest), i.e. eg. 0-1000 actually means from last-1000 to last.`
 
 `-mj,-max-jars            maximal number of jars to be printed.`
 

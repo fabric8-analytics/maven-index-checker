@@ -60,8 +60,9 @@ public class MavenIndexChecker {
 
         Options options = new Options();
 
-        Option range = new Option("r", "range", true, "range in maven index" +
-                "separated by dash. eg. 0-1000.");
+        Option range = new Option("r", "range", true,
+                "dash separated range in maven index. " +
+                "Indexes are taken from end (the newest), i.e. eg. 0-1000 actually means from last-1000 to last.");
         range.setRequired(false);
         options.addOption(range);
 
@@ -122,7 +123,7 @@ public class MavenIndexChecker {
                 intRanges[i] = Integer.parseInt(ranges[i]);
             }
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Given range is does not contains integer number");
+            throw new IllegalArgumentException("Given range limit is not integer number");
         }
 
         // swap if there is bad order
@@ -259,13 +260,20 @@ public class MavenIndexChecker {
             Bits liveDocs = MultiFields.getLiveDocs(ir);
             int max = ir.maxDoc() - 1;
             logger.info("entries: " + max);
-            logger.info("===========");
+
             if (ranges == null) {
                 ranges = new Range(0, max);
             } else if (ranges.end > max)
                 ranges.end = max;
 
-            for (int i = ranges.end; i > ranges.start; i--) {
+            // index is sorted from the oldest (0) to newest (max).
+            // By default we are interested in the newest, so revert the range.
+            Range reversed_range = new Range(max - ranges.end, max - ranges.start);
+            logger.info("Checking: " + Integer.toString(reversed_range.start) + " - " +
+                                       Integer.toString(reversed_range.end));
+
+            logger.info("===========");
+            for (int i = reversed_range.end; i > reversed_range.start; i--) {
                 if (liveDocs != null && liveDocs.get(i)) {
                     final Document doc = ir.document(i);
                     final ArtifactInfo ai = IndexUtils.constructArtifactInfo(doc, centralContext);
