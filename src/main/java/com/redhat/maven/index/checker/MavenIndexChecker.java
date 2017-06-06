@@ -60,21 +60,26 @@ public class MavenIndexChecker {
 
         Options options = new Options();
 
-        Option range = new Option("r", "range", true,
-                "dash separated range in maven index. " +
-                "Indexes are taken from end (the newest), i.e. eg. 0-1000 actually means from last-1000 to last.");
-        range.setRequired(false);
-        options.addOption(range);
+        Option ignoreOption = new Option("it", "ignore-timestamp", false,
+                "for backward compatibility. Opposite of -n/--new-only.");
+        ignoreOption.setRequired(false);
+        options.addOption(ignoreOption);
+
+        Option maxJarNumber = new Option("mj", "max-jars", true,
+                "maximal number of jars to be printed. Too big number can cause memory problems.");
+        maxJarNumber.setRequired(false);
+        options.addOption(maxJarNumber);
 
         Option newOnlyOption = new Option("n", "new-only", false,
                 "only entries added to index since last run. Is set to false if -r/--range is used.");
         newOnlyOption.setRequired(false);
         options.addOption(newOnlyOption);
 
-        Option maxJarNumber = new Option("mj", "max-jars", true,
-                "maximal number of jars to be printed. Too big number can cause memory problems.");
-        maxJarNumber.setRequired(false);
-        options.addOption(maxJarNumber);
+        Option rangeOption = new Option("r", "range", true,
+                "dash separated range in maven index. " +
+                "Indexes are taken from end (the newest), i.e. eg. 0-1000 actually means from last-1000 to last.");
+        rangeOption.setRequired(false);
+        options.addOption(rangeOption);
 
         CommandLineParser parser = new BasicParser();
         HelpFormatter formatter = new HelpFormatter();
@@ -85,7 +90,6 @@ public class MavenIndexChecker {
         } catch (ParseException e) {
             System.out.println(e.getMessage());
             formatter.printHelp("maven-index-checker", options);
-
             System.exit(1);
             return;
         }
@@ -93,6 +97,16 @@ public class MavenIndexChecker {
         boolean newOnly = false;
         if (cmd.hasOption("n")) {
             newOnly = true;
+        }
+
+        if (cmd.hasOption("it")) {
+            if (cmd.hasOption("n")) {
+                System.out.println("Options -n and -it are mutually exclusive.");
+                formatter.printHelp("maven-index-checker", options);
+                System.exit(1);
+                return;
+            }
+            newOnly = false;
         }
 
         Range mavenIndexRange = null;
