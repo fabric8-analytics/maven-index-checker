@@ -206,7 +206,7 @@ public class MavenIndexChecker {
         // other index sources might have different index publishing frequency.
         // Preferred frequency is once a week.
         Date previousCheck;
-        boolean syncRequired = true;
+        boolean updated = true;
         {
             logger.info("Updating Index...");
             logger.info("This might take a while on first run, so please be patient!");
@@ -237,7 +237,7 @@ public class MavenIndexChecker {
                 logger.info("Full update happened!");
             } else if (updateResult.getTimestamp().equals(previousCheck)) {
                 logger.info("No update needed, index is up to date!");
-                syncRequired = false;
+                updated = false;
             } else {
                 logger.info(
                         "Incremental update happened, change covered " + previousCheck + " - "
@@ -245,17 +245,17 @@ public class MavenIndexChecker {
             }
         }
 
-        logger.info("Reading index");
-        logger.info("===========");
-
-        JSONArray jsArray = new JSONArray();
+        JSONArray results = new JSONArray();
         Set<OutputInfo> info = new HashSet<OutputInfo>();
-        if (syncRequired || ignoreTimeStamp) {
+        if (updated || ignoreTimeStamp) {
+            logger.info("Reading index");
             final IndexSearcher searcher = centralContext.acquireIndexSearcher();
             try {
                 final IndexReader ir = searcher.getIndexReader();
                 Bits liveDocs = MultiFields.getLiveDocs(ir);
                 int max = ir.maxDoc() - 1;
+                logger.info("entries: " + max);
+                logger.info("===========");
                 if (ranges == null) {
                     ranges = new Range(0, max);
                 } else if (ranges.end > max)
@@ -280,9 +280,9 @@ public class MavenIndexChecker {
                 }
 
                 for (OutputInfo i : info) {
-                    jsArray.add(i.toJSON());
+                    results.add(i.toJSON());
                 }
-                System.out.println(jsArray.toJSONString());
+                System.out.println(results.toJSONString());
             } finally {
                 centralContext.releaseIndexSearcher(searcher);
             }
