@@ -3,15 +3,19 @@ Maven Index Checker
 
 `usage: maven-index-checker`
  
-`-it,--ignore-timestamp   always output latest releases`
+`-n,--new-only            only entries added to index since last run. Is set to false if -r/-range is used.`
  
 `-r,--range <arg>         range in maven index separated by dash. eg.`
+
+`-mj,-max-jars            maximal number of jars to be printed.`
+
 # Introduction
 Maven Index Checker for [Anitya](https://github.com/fedora-infra/anitya).
 
 Anitya supports various project backends. This project provides latest releases from [Maven Central](http://repo2.maven.apache.org/maven2/).
 
 # Running
+
 ## Dependencies
 
 You need just `java` and `maven` dependencies.

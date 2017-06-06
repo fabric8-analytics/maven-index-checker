@@ -61,17 +61,17 @@ public class MavenIndexChecker {
         Options options = new Options();
 
         Option range = new Option("r", "range", true, "range in maven index" +
-                " separated by dash. eg. 0-1000.");
+                "separated by dash. eg. 0-1000.");
         range.setRequired(false);
         options.addOption(range);
 
-        Option ignore = new Option("it", "ignore-timestamp", false,
-                "always output latest releases");
-        ignore.setRequired(false);
-        options.addOption(ignore);
+        Option newOnlyOption = new Option("n", "new-only", false,
+                "only entries added to index since last run. Is set to false if -r/--range is used.");
+        newOnlyOption.setRequired(false);
+        options.addOption(newOnlyOption);
 
-        Option maxJarNumber = new Option("mj", "max-jar", true,
-                "Maximal number of jars to be printed. Too big number can cause out of memory problem");
+        Option maxJarNumber = new Option("mj", "max-jars", true,
+                "maximal number of jars to be printed. Too big number can cause memory problems.");
         maxJarNumber.setRequired(false);
         options.addOption(maxJarNumber);
 
@@ -89,16 +89,16 @@ public class MavenIndexChecker {
             return;
         }
 
-        boolean ignoreTimeStamp = false;
-        if (cmd.hasOption("it")) {
-            ignoreTimeStamp = true;
+        boolean newOnly = false;
+        if (cmd.hasOption("n")) {
+            newOnly = true;
         }
 
         Range mavenIndexRange = null;
         if (cmd.hasOption("r")) {
             mavenIndexRange = parseRange(cmd.getOptionValue("r"));
-            // I want to ignore timestamps in case there is range option
-            ignoreTimeStamp = true;
+            // Don't restrict to new only if -r/--range is used.
+            newOnly = false;
         }
 
         int maxJarNumberValue = -1;
@@ -106,7 +106,7 @@ public class MavenIndexChecker {
             maxJarNumberValue = Integer.parseInt(cmd.getOptionValue("mj"));
         }
 
-        final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker(ignoreTimeStamp, mavenIndexRange,
+        final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker(newOnly, mavenIndexRange,
                 maxJarNumberValue);
         mavenIndexChecker.perform();
     }
@@ -148,7 +148,7 @@ public class MavenIndexChecker {
 
     private final Wagon httpWagon;
 
-    private final boolean ignoreTimeStamp;
+    private final boolean newOnly;
 
     private Range ranges = null;
 
@@ -162,7 +162,7 @@ public class MavenIndexChecker {
         }
     }
 
-    private MavenIndexChecker(boolean ignoreTimeStamp, Range ranges, int maxJarNumber)
+    private MavenIndexChecker(boolean newOnly, Range ranges, int maxJarNumber)
             throws PlexusContainerException, ComponentLookupException {
         final DefaultContainerConfiguration config = new DefaultContainerConfiguration();
         config.setClassPathScanning(PlexusConstants.SCANNING_INDEX);
@@ -174,8 +174,7 @@ public class MavenIndexChecker {
         // lookup wagon used to remotely fetch index
         this.httpWagon = plexusContainer.lookup(Wagon.class, "http");
         logger = LoggerFactory.getLogger(MavenIndexChecker.class);
-        // set number of newest packages to synchronize
-        this.ignoreTimeStamp = ignoreTimeStamp;
+        this.newOnly = newOnly;
         if (ranges != null)
             this.ranges = ranges;
 
@@ -245,47 +244,51 @@ public class MavenIndexChecker {
             }
         }
 
+        if (newOnly && !updated) {
+            indexer.closeIndexingContext(centralContext, false);
+            logger.info("No new entries since last run");
+            return;
+        }
+
+        logger.info("Reading index");
         JSONArray results = new JSONArray();
         Set<OutputInfo> info = new HashSet<OutputInfo>();
-        if (updated || ignoreTimeStamp) {
-            logger.info("Reading index");
-            final IndexSearcher searcher = centralContext.acquireIndexSearcher();
-            try {
-                final IndexReader ir = searcher.getIndexReader();
-                Bits liveDocs = MultiFields.getLiveDocs(ir);
-                int max = ir.maxDoc() - 1;
-                logger.info("entries: " + max);
-                logger.info("===========");
-                if (ranges == null) {
-                    ranges = new Range(0, max);
-                } else if (ranges.end > max)
-                    ranges.end = max;
+        final IndexSearcher searcher = centralContext.acquireIndexSearcher();
+        try {
+            final IndexReader ir = searcher.getIndexReader();
+            Bits liveDocs = MultiFields.getLiveDocs(ir);
+            int max = ir.maxDoc() - 1;
+            logger.info("entries: " + max);
+            logger.info("===========");
+            if (ranges == null) {
+                ranges = new Range(0, max);
+            } else if (ranges.end > max)
+                ranges.end = max;
 
-                for (int i = ranges.end; i > ranges.start; i--) {
-                    if (liveDocs != null && liveDocs.get(i)) {
-                        final Document doc = ir.document(i);
-                        final ArtifactInfo ai = IndexUtils.constructArtifactInfo(doc, centralContext);
-                        if (ai != null) {
-                            Date date = new Date(ai.getLastModified());
-                            // we want to announce just jar's
-                            if ("jar".equals(ai.getPackaging()) && (date.after(previousCheck) || ignoreTimeStamp)) {
-                                info.add(new OutputInfo(ai.getArtifactId(), ai.getGroupId(), ai.getVersion()));
-                            }
+            for (int i = ranges.end; i > ranges.start; i--) {
+                if (liveDocs != null && liveDocs.get(i)) {
+                    final Document doc = ir.document(i);
+                    final ArtifactInfo ai = IndexUtils.constructArtifactInfo(doc, centralContext);
+                    if (ai != null) {
+                        Date date = new Date(ai.getLastModified());
+                        // we want to announce just jar's
+                        if ("jar".equals(ai.getPackaging()) && (!newOnly || date.after(previousCheck))) {
+                            info.add(new OutputInfo(ai.getArtifactId(), ai.getGroupId(), ai.getVersion()));
+                        }
 
-                            if (info.size() >= maxJarNumber) {
-                                break;
-                            }
+                        if (info.size() >= maxJarNumber) {
+                            break;
                         }
                     }
                 }
-
-                for (OutputInfo i : info) {
-                    results.add(i.toJSON());
-                }
-                System.out.println(results.toJSONString());
-            } finally {
-                centralContext.releaseIndexSearcher(searcher);
             }
+
+            for (OutputInfo i : info) {
+                results.add(i.toJSON());
+            }
+            System.out.println(results.toJSONString());
+        } finally {
+            centralContext.releaseIndexSearcher(searcher);
         }
         indexer.closeIndexingContext(centralContext, false);
     }
