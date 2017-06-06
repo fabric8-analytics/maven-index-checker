@@ -262,7 +262,7 @@ public class MavenIndexChecker {
                     ranges.end = max;
 
                 for (int i = ranges.end; i > ranges.start; i--) {
-                    if (liveDocs == null || liveDocs.get(i)) {
+                    if (liveDocs != null && liveDocs.get(i)) {
                         final Document doc = ir.document(i);
                         final ArtifactInfo ai = IndexUtils.constructArtifactInfo(doc, centralContext);
                         if (ai != null) {
