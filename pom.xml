@@ -38,6 +38,11 @@
             <artifactId>slf4j-simple</artifactId>
             <version>1.7.5</version>
         </dependency>
+        <dependency>
+            <groupId>org.tmatesoft.sqljet</groupId>
+            <artifactId>sqljet</artifactId>
+            <version>1.1.10</version>
+        </dependency>
 
         <!-- For ResourceFetcher implementation, if used -->
         <dependency>
