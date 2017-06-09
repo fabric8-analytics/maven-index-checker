@@ -355,7 +355,7 @@ public class MavenIndexChecker {
             try {
                 ISqlJetCursor cursor = table.open();
                 boolean notFirst = false;
-                do {
+                while (!cursor.eof()) {
                     if (notFirst) {
                         System.out.print(",");
                     }
@@ -364,7 +364,8 @@ public class MavenIndexChecker {
                                                    cursor.getString("artifactId"),
                                                    cursor.getString("version"));
                     System.out.print(oi.toJSON());
-                } while (cursor.next());
+                    cursor.next();
+                }
             } finally {
                 db.commit();
             }
