@@ -271,7 +271,6 @@ public class MavenIndexChecker {
         }
 
         logger.info("Reading index");
-        JSONArray results = new JSONArray();
         File dbFile = File.createTempFile("mic", "db");
         dbFile.deleteOnExit();
         /* We use a sqlite on-disk db to be able to leave out duplicates
@@ -320,9 +319,9 @@ public class MavenIndexChecker {
                         if ("jar".equals(ai.getPackaging()) && (!newOnly || date.after(previousCheck))) {
                             // see if we already have this <gId, aId, version>
                             db.beginTransaction(SqlJetTransactionMode.READ_ONLY);
-                            ISqlJetCursor cursor = null;
                             boolean alreadyInserted = false;
                             try {
+                                ISqlJetCursor cursor = null;
                                 cursor = table.lookup("package_version", ai.getArtifactId(), ai.getGroupId(), ai.getVersion());
                                 if (cursor.getRowCount() > 0) {
                                     alreadyInserted = true;
