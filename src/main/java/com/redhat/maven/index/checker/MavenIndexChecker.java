@@ -54,6 +54,12 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
+import org.tmatesoft.sqljet.core.SqlJetException;
+import org.tmatesoft.sqljet.core.SqlJetTransactionMode;
+import org.tmatesoft.sqljet.core.table.ISqlJetCursor;
+import org.tmatesoft.sqljet.core.table.ISqlJetTable;
+import org.tmatesoft.sqljet.core.table.SqlJetDb;
+
 public class MavenIndexChecker {
     public static void main(String[] args)
             throws Exception {
@@ -153,7 +159,7 @@ public class MavenIndexChecker {
 
     private final static String MAVEN_URL = "http://repo1.maven.org/maven2";
 
-    private int maxJarNumber = 10000;
+    private int maxJarNumber = -1;
 
     private final PlexusContainer plexusContainer;
 
@@ -193,12 +199,11 @@ public class MavenIndexChecker {
         if (ranges != null)
             this.ranges = ranges;
 
-        if(maxJarNumber != -1)
-            this.maxJarNumber = maxJarNumber;
+        this.maxJarNumber = maxJarNumber;
     }
 
     private void perform()
-            throws IOException, ComponentLookupException, InvalidVersionSpecificationException {
+            throws IOException, ComponentLookupException, InvalidVersionSpecificationException, SqlJetException {
         // Files where local cache is (if any) and Lucene Index should be located
         File centralLocalCache = new File("target/central-cache");
         File centralIndexDir = new File("target/central-index");
@@ -266,9 +271,26 @@ public class MavenIndexChecker {
         }
 
         logger.info("Reading index");
-        JSONArray results = new JSONArray();
-        Set<OutputInfo> info = new HashSet<OutputInfo>();
+        File dbFile = File.createTempFile("mic", "db");
+        dbFile.deleteOnExit();
+        /* We use a sqlite on-disk db to be able to leave out duplicates
+           while not keeping all the package objects in-memory.
+           The duplicates exist since the lucene index contains
+           all artifacts for every package version, e.g. not just the
+           binary jar, but also javadocs, sources, ... (if present). */
+        SqlJetDb db = SqlJetDb.open(dbFile, true);
+        db.getOptions().setAutovacuum(true);
+        db.beginTransaction(SqlJetTransactionMode.WRITE);
+        try {
+            db.createTable("CREATE TABLE packages (groupId STRING, artifactId STRING, version STRING)");
+            db.createIndex("CREATE INDEX package_version ON packages (groupId, artifactId, version)");
+        } finally {
+            db.commit();
+        }
+        ISqlJetTable table = db.getTable("packages");
+
         final IndexSearcher searcher = centralContext.acquireIndexSearcher();
+        int packagesInserted = 0;
         try {
             final IndexReader ir = searcher.getIndexReader();
             Bits liveDocs = MultiFields.getLiveDocs(ir);
@@ -295,20 +317,58 @@ public class MavenIndexChecker {
                         Date date = new Date(ai.getLastModified());
                         // we want to announce just jar's
                         if ("jar".equals(ai.getPackaging()) && (!newOnly || date.after(previousCheck))) {
-                            info.add(new OutputInfo(ai.getArtifactId(), ai.getGroupId(), ai.getVersion()));
+                            // see if we already have this <gId, aId, version>
+                            db.beginTransaction(SqlJetTransactionMode.READ_ONLY);
+                            boolean alreadyInserted = false;
+                            try {
+                                ISqlJetCursor cursor = null;
+                                cursor = table.lookup("package_version", ai.getArtifactId(), ai.getGroupId(), ai.getVersion());
+                                if (cursor.getRowCount() > 0) {
+                                    alreadyInserted = true;
+                                }
+                            } finally {
+                                db.commit();
+                            }
+                            if (!alreadyInserted) {
+                                // <gId, aId, version> wasn't found => insert it
+                                packagesInserted++;
+                                db.beginTransaction(SqlJetTransactionMode.WRITE);
+                                try {
+                                    table.insert(ai.getArtifactId(), ai.getGroupId(), ai.getVersion());
+                                } finally {
+                                    db.commit();
+                                }
+                            }
                         }
 
-                        if (info.size() >= maxJarNumber) {
+                        if (maxJarNumber != -1 && packagesInserted >= maxJarNumber) {
                             break;
                         }
                     }
                 }
             }
 
-            for (OutputInfo i : info) {
-                results.add(i.toJSON());
+            // print the resulting JSON manually to avoid having to load all objects in memory
+            System.out.print("[");
+            db.beginTransaction(SqlJetTransactionMode.READ_ONLY);
+            try {
+                ISqlJetCursor cursor = table.open();
+                boolean notFirst = false;
+                while (!cursor.eof()) {
+                    if (notFirst) {
+                        System.out.print(",");
+                    }
+                    notFirst = true;
+                    OutputInfo oi = new OutputInfo(cursor.getString("groupId"),
+                                                   cursor.getString("artifactId"),
+                                                   cursor.getString("version"));
+                    System.out.print(oi.toJSON());
+                    cursor.next();
+                }
+            } finally {
+                db.commit();
             }
-            System.out.println(results.toJSONString());
+            System.out.print("]");
         } finally {
             centralContext.releaseIndexSearcher(searcher);
         }
