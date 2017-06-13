@@ -87,6 +87,11 @@ public class MavenIndexChecker {
         rangeOption.setRequired(false);
         options.addOption(rangeOption);
 
+        Option latestOption = new Option("l", "latest", false,
+                "only output version that is last in Maven index for given groupId:artifactId. ");
+        latestOption.setRequired(false);
+        options.addOption(latestOption);
+
         CommandLineParser parser = new BasicParser();
         HelpFormatter formatter = new HelpFormatter();
         CommandLine cmd;
@@ -103,6 +108,11 @@ public class MavenIndexChecker {
         boolean newOnly = false;
         if (cmd.hasOption("n")) {
             newOnly = true;
+        }
+
+        boolean latestOnly = false;
+        if (cmd.hasOption("l")) {
+            latestOnly = true;
         }
 
         if (cmd.hasOption("it")) {
@@ -127,8 +137,8 @@ public class MavenIndexChecker {
             maxJarNumberValue = Integer.parseInt(cmd.getOptionValue("mj"));
         }
 
-        final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker(newOnly, mavenIndexRange,
-                maxJarNumberValue);
+        final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker(newOnly, latestOnly,
+                mavenIndexRange, maxJarNumberValue);
         mavenIndexChecker.perform();
     }
 
@@ -171,6 +181,8 @@ public class MavenIndexChecker {
 
     private final boolean newOnly;
 
+    private final boolean latestOnly;
+
     private Range ranges = null;
 
     private static class Range {
@@ -183,7 +195,7 @@ public class MavenIndexChecker {
         }
     }
 
-    private MavenIndexChecker(boolean newOnly, Range ranges, int maxJarNumber)
+    private MavenIndexChecker(boolean newOnly, boolean latestOnly, Range ranges, int maxJarNumber)
             throws PlexusContainerException, ComponentLookupException {
         final DefaultContainerConfiguration config = new DefaultContainerConfiguration();
         config.setClassPathScanning(PlexusConstants.SCANNING_INDEX);
@@ -196,10 +208,44 @@ public class MavenIndexChecker {
         this.httpWagon = plexusContainer.lookup(Wagon.class, "http");
         logger = LoggerFactory.getLogger(MavenIndexChecker.class);
         this.newOnly = newOnly;
+        this.latestOnly = latestOnly;
         if (ranges != null)
             this.ranges = ranges;
 
         this.maxJarNumber = maxJarNumber;
+    }
+
+    private boolean shouldInsert(SqlJetDb db, ISqlJetTable table, ArtifactInfo ai) throws SqlJetException {
+        boolean shouldInsert = true;
+
+        // see if we already have this <gId, aId, version>
+        db.beginTransaction(SqlJetTransactionMode.READ_ONLY);
+        try {
+            ISqlJetCursor cursor = null;
+            cursor = table.lookup("package_version", ai.getArtifactId(), ai.getGroupId(), ai.getVersion());
+            if (cursor.getRowCount() > 0) {
+                shouldInsert = false;
+            }
+        } finally {
+            db.commit();
+        }
+
+        if (this.latestOnly) {
+            // if this.latestOnly is set to `true`, we only return if such
+            // <gId, aId> hasn't been inserted
+            db.beginTransaction(SqlJetTransactionMode.READ_ONLY);
+            try {
+                ISqlJetCursor cursor = null;
+                cursor = table.lookup("package", ai.getArtifactId(), ai.getGroupId());
+                if (cursor.getRowCount() > 0) {
+                    shouldInsert = false;
+                }
+            } finally {
+                db.commit();
+            }
+        }
+
+        return shouldInsert;
     }
 
     private void perform()
@@ -283,6 +329,7 @@ public class MavenIndexChecker {
         db.beginTransaction(SqlJetTransactionMode.WRITE);
         try {
             db.createTable("CREATE TABLE packages (groupId STRING, artifactId STRING, version STRING)");
+            db.createIndex("CREATE INDEX package ON packages (groupId, artifactId)");
             db.createIndex("CREATE INDEX package_version ON packages (groupId, artifactId, version)");
         } finally {
             db.commit();
@@ -316,28 +363,14 @@ public class MavenIndexChecker {
                     if (ai != null) {
                         Date date = new Date(ai.getLastModified());
                         // we want to announce just jar's
-                        if ("jar".equals(ai.getPackaging()) && (!newOnly || date.after(previousCheck))) {
-                            // see if we already have this <gId, aId, version>
-                            db.beginTransaction(SqlJetTransactionMode.READ_ONLY);
-                            boolean alreadyInserted = false;
+                        if ("jar".equals(ai.getPackaging()) && (!newOnly || date.after(previousCheck))
+                                && this.shouldInsert(db, table, ai)) {
+                            packagesInserted++;
+                            db.beginTransaction(SqlJetTransactionMode.WRITE);
                             try {
-                                ISqlJetCursor cursor = null;
-                                cursor = table.lookup("package_version", ai.getArtifactId(), ai.getGroupId(), ai.getVersion());
-                                if (cursor.getRowCount() > 0) {
-                                    alreadyInserted = true;
-                                }
+                                table.insert(ai.getArtifactId(), ai.getGroupId(), ai.getVersion());
                             } finally {
                                 db.commit();
-                            }
-                            if (!alreadyInserted) {
-                                // <gId, aId, version> wasn't found => insert it
-                                packagesInserted++;
-                                db.beginTransaction(SqlJetTransactionMode.WRITE);
-                                try {
-                                    table.insert(ai.getArtifactId(), ai.getGroupId(), ai.getVersion());
-                                } finally {
-                                    db.commit();
-                                }
                             }
                         }
 
