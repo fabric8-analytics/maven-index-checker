@@ -45,7 +45,7 @@ import org.codehaus.plexus.PlexusContainer;
 import org.codehaus.plexus.PlexusContainerException;
 import org.codehaus.plexus.component.repository.exception.ComponentLookupException;
 import org.eclipse.aether.version.InvalidVersionSpecificationException;
-import org.json.simple.JSONArray;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.cli.*;
@@ -392,10 +392,15 @@ public class MavenIndexChecker {
                         System.out.print(",");
                     }
                     notFirst = true;
-                    OutputInfo oi = new OutputInfo(cursor.getString("groupId"),
-                                                   cursor.getString("artifactId"),
-                                                   cursor.getString("version"));
-                    System.out.print(oi.toJSON());
+
+                    try {
+                        OutputInfo oi = new OutputInfo(cursor.getString("groupId"),
+                                                       cursor.getString("artifactId"),
+                                                       cursor.getString("version"));
+                        System.out.print(oi.toJSON());
+                    } catch (SqlJetException | NumberFormatException ex) {
+                        logger.error("Failed to fetch data from database", ex);
+                    }
                     cursor.next();
                 }
             } finally {
