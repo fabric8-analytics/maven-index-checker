@@ -328,7 +328,7 @@ public class MavenIndexChecker {
         db.getOptions().setAutovacuum(true);
         db.beginTransaction(SqlJetTransactionMode.WRITE);
         try {
-            db.createTable("CREATE TABLE packages (groupId STRING, artifactId STRING, version STRING)");
+            db.createTable("CREATE TABLE packages (groupId TEXT, artifactId TEXT, version TEXT)");
             db.createIndex("CREATE INDEX package ON packages (groupId, artifactId)");
             db.createIndex("CREATE INDEX package_version ON packages (groupId, artifactId, version)");
         } finally {
@@ -398,7 +398,7 @@ public class MavenIndexChecker {
                                                        cursor.getString("artifactId"),
                                                        cursor.getString("version"));
                         System.out.print(oi.toJSON());
-                    } catch (SqlJetException | NumberFormatException ex) {
+                    } catch (SqlJetException ex) {
                         logger.error("Failed to fetch data from database", ex);
                     }
                     cursor.next();
