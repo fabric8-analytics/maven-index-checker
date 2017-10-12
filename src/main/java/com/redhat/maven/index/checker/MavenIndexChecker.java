@@ -92,6 +92,12 @@ public class MavenIndexChecker {
         latestOption.setRequired(false);
         options.addOption(latestOption);
 
+        Option countOption = new Option("c", "count", false,
+                "Report number of entries and quit.");
+        latestOption.setRequired(false);
+        options.addOption(countOption);
+
+
         CommandLineParser parser = new BasicParser();
         HelpFormatter formatter = new HelpFormatter();
         CommandLine cmd;
@@ -113,6 +119,11 @@ public class MavenIndexChecker {
         boolean latestOnly = false;
         if (cmd.hasOption("l")) {
             latestOnly = true;
+        }
+
+        boolean countOnly = false;
+        if (cmd.hasOption("c")) {
+            countOnly = true;
         }
 
         if (cmd.hasOption("it")) {
@@ -138,7 +149,7 @@ public class MavenIndexChecker {
         }
 
         final MavenIndexChecker mavenIndexChecker = new MavenIndexChecker(newOnly, latestOnly,
-                mavenIndexRange, maxJarNumberValue);
+                countOnly, mavenIndexRange, maxJarNumberValue);
         mavenIndexChecker.perform();
     }
 
@@ -183,6 +194,8 @@ public class MavenIndexChecker {
 
     private final boolean latestOnly;
 
+    private final boolean countOnly;
+
     private Range ranges = null;
 
     private static class Range {
@@ -195,7 +208,7 @@ public class MavenIndexChecker {
         }
     }
 
-    private MavenIndexChecker(boolean newOnly, boolean latestOnly, Range ranges, int maxJarNumber)
+    private MavenIndexChecker(boolean newOnly, boolean latestOnly, boolean countOnly, Range ranges, int maxJarNumber)
             throws PlexusContainerException, ComponentLookupException {
         final DefaultContainerConfiguration config = new DefaultContainerConfiguration();
         config.setClassPathScanning(PlexusConstants.SCANNING_INDEX);
@@ -209,6 +222,7 @@ public class MavenIndexChecker {
         logger = LoggerFactory.getLogger(MavenIndexChecker.class);
         this.newOnly = newOnly;
         this.latestOnly = latestOnly;
+        this.countOnly = countOnly;
         if (ranges != null)
             this.ranges = ranges;
 
@@ -343,6 +357,11 @@ public class MavenIndexChecker {
             Bits liveDocs = MultiFields.getLiveDocs(ir);
             int max = ir.maxDoc() - 1;
             logger.info("entries: " + max);
+
+            if (this.countOnly) {
+                System.out.print("{\"count\": " + max + "}");
+                return;
+            }
 
             if (ranges == null) {
                 ranges = new Range(0, max);
