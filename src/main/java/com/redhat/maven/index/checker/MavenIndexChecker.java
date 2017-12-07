@@ -265,8 +265,8 @@ public class MavenIndexChecker {
     private void perform()
             throws IOException, ComponentLookupException, InvalidVersionSpecificationException, SqlJetException {
         // Files where local cache is (if any) and Lucene Index should be located
-        File centralLocalCache = new File("target/central-cache");
-        File centralIndexDir = new File("target/central-index");
+        File centralLocalCache = new File(System.getProperty("centralLocalCache", "target/central-cache"));
+        File centralIndexDir = new File(System.getProperty("centralIndexDir", "target/central-index"));
 
         // Creators we want to use (search for fields it defines)
         List<IndexCreator> indexers = new ArrayList<IndexCreator>();
