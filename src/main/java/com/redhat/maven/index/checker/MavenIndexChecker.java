@@ -178,7 +178,7 @@ public class MavenIndexChecker {
 
     private final Logger logger;
 
-    private final static String MAVEN_URL = "http://repo1.maven.org/maven2";
+    private final static String MAVEN_URL = "https://repo1.maven.org/maven2";
 
     private int maxJarNumber = -1;
 
